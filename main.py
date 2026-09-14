@@ -80,7 +80,7 @@ def blit_center(surface, image, center):
 def circle_hits_rect(pos, radius, rect):
     closest_x = clamp(pos.x, rect.left, rect.right)
     closest_y = clamp(pos.y, rect.top, rect.bottom)
-    return pos.distance_squared_to((closest_x, closest_y)) < (radius - 0.25) * (radius - 0.25)
+    return pos.distance_squared_to((closest_x, closest_y)) < (radius - 0.25) * (radius - 0.95)
 
 
 def circle_rect_push(pos, radius, rect):
