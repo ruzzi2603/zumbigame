@@ -232,7 +232,7 @@ class Zombie:
         self.level = level
         self.is_boss = is_boss
         self.radius = random.randint(18, 25) if not is_boss else 82
-        self.max_health = (45 + level * 18) if not is_boss else 1250
+        self.max_health = (35 + level * 18) if not is_boss else 1250
         self.health = self.max_health
         self.speed = (85 + level * 10 + random.uniform(-8, 16)) if not is_boss else 96
         self.damage = (10 + level * 2) if not is_boss else 34
