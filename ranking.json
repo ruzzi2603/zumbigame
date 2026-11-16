@@ -1,0 +1,30 @@
+[
+  {
+    "date": "2026-11-16T13:42:27.560461-03:00",
+    "character": "Ranger",
+    "kills": 0,
+    "score": 0,
+    "level": 1
+  },
+  {
+    "date": "2026-11-16T13:43:48.663063-03:00",
+    "character": "Ranger",
+    "kills": 6,
+    "score": 6,
+    "level": 1
+  },
+  {
+    "date": "2026-11-16T13:44:48.354761-03:00",
+    "character": "Tanque",
+    "kills": 5,
+    "score": 5,
+    "level": 1
+  },
+  {
+    "date": "2026-11-16T13:56:18.044318-03:00",
+    "character": "Ranger",
+    "kills": 5,
+    "score": 5,
+    "level": 1
+  }
+]

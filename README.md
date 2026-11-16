@@ -31,14 +31,18 @@ python generate_assets.py
 - Boss especial no nivel 10
 - Arma evolui a cada nivel, mudando dano, cadencia, velocidade e quantidade de tiros
 - Personagens, tres tipos de zumbi, caixas e barreiras recortados das imagens fornecidas
-- Cenario de pedras com areas de asfalto destruido, destrocos, capsulas e manchas de sangue
+- Fundo de asfalto destruido com textura menos ampliada, calçamento, destrocos, capsulas, manchas de sangue e fogueiras animadas
 - Carro abandonado, sacos de areia e tambores com colisao no mapa
 - Projeteis com rastro de fogo animado e particulas de impacto
+- Ranking persistente por abates, com data, personagem e nivel de cada morte
 - Zumbis com barra de vida, colisao e dano ao jogador
-- Mapa grande com fundo de pedras, paredes, barreiras e caixas reais que bloqueiam jogador, zumbis e tiros
+- Arena cercada por muro de blocos, com floresta densa e copas estilizadas do lado de fora
+- Mapa grande com paredes, barreiras e caixas reais que bloqueiam jogador, zumbis e tiros
 - Kits medicos espalhados pelo mapa para recuperar vida
 - Arena grande com camera seguindo o personagem
 - HUD com vida, nivel, abates, arma atual e dicas de controle
+
+O historico de mortes e salvo automaticamente em `ranking.json` na pasta do jogo.
 
 ## Referencias usadas
 

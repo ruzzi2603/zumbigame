@@ -1,7 +1,9 @@
+import json
 import math
 import random
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import pygame
@@ -18,6 +20,47 @@ ACCENT = (255, 202, 87)
 RED = (229, 76, 76)
 GREEN = (89, 185, 122)
 ASSET_DIR = Path(__file__).parent / "assets"
+RANKING_FILE = Path(__file__).parent / "ranking.json"
+
+
+def load_ranking():
+    if not RANKING_FILE.exists():
+        return []
+
+    try:
+        entries = json.loads(RANKING_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Arquivo de ranking invalido: {exc}") from exc
+    if not isinstance(entries, list):
+        raise ValueError("O arquivo de ranking deve conter uma lista.")
+
+    required = {"date", "character", "kills", "score", "level"}
+    for index, entry in enumerate(entries, start=1):
+        if not isinstance(entry, dict) or not required.issubset(entry):
+            raise ValueError(f"Registro {index} do ranking esta incompleto.")
+        if (
+            not isinstance(entry["character"], str)
+            or type(entry["kills"]) is not int
+            or type(entry["score"]) is not int
+            or type(entry["level"]) is not int
+        ):
+            raise ValueError(f"Registro {index} do ranking tem dados invalidos.")
+        try:
+            datetime.fromisoformat(entry["date"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Data invalida no registro {index} do ranking.") from exc
+    return entries
+
+
+def save_ranking(entries):
+    RANKING_FILE.write_text(
+        json.dumps(entries, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def format_ranking_date(value):
+    return datetime.fromisoformat(value).astimezone().strftime("%d/%m/%Y %H:%M")
 
 
 @dataclass(frozen=True)
@@ -134,8 +177,23 @@ class Assets:
         self.crates = self.load_many("crate_", 4)
         self.barriers = self.load_many("barrier_", 2)
         self.boss = self.load("boss.png")
-        self.backgrounds = [self.load("cobblestone.png", alpha=False)]
-        self.ruined_asphalt = self.load("ruined_asphalt.png", alpha=False)
+        ground = self.load("ruined_asphalt.png", alpha=False)
+        if ground:
+            width, height = ground.get_size()
+            ground = ground.subsurface((4, 4, width - 8, height - 8)).copy()
+            ground = pygame.transform.smoothscale(ground, (283, 174))
+        self.backgrounds = [ground] if ground else []
+        self.background_tiles = (
+            [
+                ground,
+                pygame.transform.flip(ground, True, False),
+                pygame.transform.flip(ground, False, True),
+                pygame.transform.flip(ground, True, True),
+            ]
+            if ground
+            else []
+        )
+        self.cobblestone = self.load("cobblestone.png", alpha=False)
         self.debris = self.load("debris.png")
         self.spent_casings = self.load("spent_casings.png")
         self.blood_splatter = self.load("blood_splatter.png")
@@ -260,6 +318,158 @@ class MedKit:
         pygame.draw.rect(surface, (150, 42, 48), box, 3, border_radius=5)
         pygame.draw.rect(surface, (214, 50, 62), (box.centerx - 4, box.y + 6, 8, 16), border_radius=2)
         pygame.draw.rect(surface, (214, 50, 62), (box.x + 9, box.centery - 4, 16, 8), border_radius=2)
+
+
+class Campfire:
+    def __init__(self, pos, phase=0):
+        self.pos = pygame.Vector2(pos)
+        self.phase = phase
+        self.glow = pygame.Surface((112, 112), pygame.SRCALPHA)
+        pygame.draw.circle(self.glow, (255, 75, 12, 12), (56, 56), 55)
+        pygame.draw.circle(self.glow, (255, 104, 20, 18), (56, 56), 34)
+        pygame.draw.circle(self.glow, (255, 160, 45, 22), (56, 56), 18)
+
+    def draw(self, surface, camera):
+        center = self.pos - camera
+        if not surface.get_rect().inflate(112, 112).collidepoint(center):
+            return
+
+        x, y = round(center.x), round(center.y)
+        surface.blit(self.glow, (x - 56, y - 56))
+        for offset_x, offset_y in ((-13, 7), (-7, 12), (1, 13), (10, 9), (15, 3), (6, -1), (-6, 0)):
+            pygame.draw.circle(surface, (72, 72, 68), (x + offset_x, y + offset_y), 4)
+        pygame.draw.line(surface, (67, 43, 29), (x - 12, y + 9), (x + 12, y + 3), 7)
+        pygame.draw.line(surface, (104, 62, 35), (x - 10, y + 3), (x + 10, y + 10), 6)
+
+        time = pygame.time.get_ticks() * 0.001 + self.phase
+        flicker = math.sin(time * 11) + math.sin(time * 17 + self.phase) * 0.35
+        for index, offset_x in enumerate((-7, 0, 7)):
+            height = 16 + (flicker + math.sin(time * 8 + index) * 0.5) * 3
+            width = 5 + math.sin(time * 13 + index * 2) * 1.2
+            base_y = y + 3
+            tip_y = base_y - height - (index == 1) * 3
+            points = tuple(
+                (round(point_x), round(point_y))
+                for point_x, point_y in (
+                    (x + offset_x, tip_y),
+                    (x + offset_x - width, base_y - 2),
+                    (x + offset_x, base_y + 2),
+                    (x + offset_x + width, base_y - 2),
+                )
+            )
+            pygame.draw.polygon(surface, (213, 59, 17), points)
+            inner = tuple(
+                (round(point_x), round(point_y))
+                for point_x, point_y in (
+                    (x + offset_x, tip_y + height * 0.38),
+                    (x + offset_x - width * 0.55, base_y - 1),
+                    (x + offset_x + width * 0.55, base_y - 1),
+                )
+            )
+            pygame.draw.polygon(surface, (255, 143, 28), inner)
+        pygame.draw.ellipse(surface, (255, 218, 91), (x - 2, y - 2, 4, 8))
+
+
+class Tree:
+    def __init__(self, pos, radius, shade, seed):
+        self.pos = pygame.Vector2(pos)
+        self.radius = radius
+        self.shade = shade
+        rng = random.Random(seed)
+        patterns = (
+            (-0.48, -0.12, 0.40),
+            (-0.38, -0.42, 0.38),
+            (0.02, -0.52, 0.40),
+            (0.43, -0.38, 0.40),
+            (0.54, 0.02, 0.40),
+            (0.34, 0.43, 0.41),
+            (-0.08, 0.51, 0.40),
+            (-0.48, 0.36, 0.40),
+        )
+        self.puffs = []
+        for offset_x, offset_y, size in patterns:
+            x = (offset_x + rng.uniform(-0.06, 0.06)) * radius
+            y = (offset_y + rng.uniform(-0.06, 0.06)) * radius
+            puff_radius = radius * size * rng.uniform(0.86, 1.08)
+            puff_color = tuple(
+                max(0, min(255, component + rng.randint(-8, 8)))
+                for component in shade
+            )
+            marks = [
+                (
+                    rng.uniform(-0.48, 0.48) * puff_radius,
+                    rng.uniform(-0.42, 0.42) * puff_radius,
+                    rng.uniform(0.10, 0.17) * puff_radius,
+                )
+                for _ in range(3)
+            ]
+            self.puffs.append((x, y, puff_radius, puff_color, marks))
+
+        self.margin = max(8, round(radius * 0.28))
+        size = (radius + self.margin) * 2
+        self.image = pygame.Surface((size, size), pygame.SRCALPHA)
+        self.render_canopy()
+        self.puffs.clear()
+
+    def render_canopy(self):
+        radius = self.radius
+        x = y = radius + self.margin
+        pygame.draw.ellipse(
+            self.image,
+            (12, 22, 18),
+            (x - radius, round(y - radius * 0.45), radius * 2, round(radius * 1.65)),
+        )
+        pygame.draw.circle(self.image, (24, 54, 29), (x, y), radius)
+
+        branch_color = (87, 55, 29)
+        branch_width = max(3, round(radius * 0.13))
+        for end_x, end_y in (
+            (x - radius * 0.58, y - radius * 0.28),
+            (x + radius * 0.60, y - radius * 0.20),
+            (x - radius * 0.43, y + radius * 0.48),
+            (x + radius * 0.42, y + radius * 0.50),
+            (x + radius * 0.06, y - radius * 0.72),
+        ):
+            pygame.draw.line(
+                self.image,
+                branch_color,
+                (x, y),
+                (round(end_x), round(end_y)),
+                branch_width,
+            )
+        pygame.draw.circle(self.image, (104, 67, 34), (x, y), max(4, round(radius * 0.2)))
+
+        for offset_x, offset_y, puff_radius, color, marks in self.puffs:
+            puff_x = round(x + offset_x)
+            puff_y = round(y + offset_y)
+            outline = (27, 67, 34)
+            light = (
+                min(255, color[0] + 28),
+                min(255, color[1] + 42),
+                min(255, color[2] + 12),
+            )
+            pygame.draw.circle(self.image, outline, (puff_x, puff_y), round(puff_radius + 2))
+            pygame.draw.circle(self.image, color, (puff_x, puff_y), round(puff_radius))
+            pygame.draw.circle(
+                self.image,
+                light,
+                (round(puff_x - puff_radius * 0.2), round(puff_y - puff_radius * 0.22)),
+                round(puff_radius * 0.68),
+            )
+            for mark_x, mark_y, mark_radius in marks:
+                mark_rect = pygame.Rect(
+                    round(puff_x + mark_x - mark_radius * 0.55),
+                    round(puff_y + mark_y - mark_radius),
+                    max(2, round(mark_radius * 1.1)),
+                    max(3, round(mark_radius * 2)),
+                )
+                pygame.draw.ellipse(self.image, (190, 226, 111), mark_rect)
+
+    def draw(self, surface, camera):
+        center = self.pos - camera
+        rect = self.image.get_rect(center=(round(center.x), round(center.y)))
+        if surface.get_rect().colliderect(rect):
+            surface.blit(self.image, rect)
 
 
 class Zombie:
@@ -438,6 +648,7 @@ class Game:
         self.player = None
         self.level = 1
         self.kills = 0
+        self.total_kills = 0
         self.spawned = 0
         self.spawn_timer = 0
         self.zombies = []
@@ -447,6 +658,16 @@ class Game:
         self.message_timer = 0
         self.camera = pygame.Vector2()
         self.mouse_world = pygame.Vector2()
+        self.current_death = None
+        self.ranking_error = None
+        self.ranking_available = True
+        try:
+            self.death_history = load_ranking()
+        except (OSError, ValueError) as exc:
+            self.death_history = []
+            self.ranking_error = f"Nao foi possivel carregar o ranking: {exc}"
+            self.ranking_available = False
+            print(self.ranking_error, file=sys.stderr)
         self.obstacle_props = [
             (pygame.Rect(-1435, -465, 210, 95), self.assets.sandbags),
             (pygame.Rect(960, -820, 220, 105), self.assets.abandoned_car),
@@ -455,6 +676,12 @@ class Game:
         self.obstacles = self.create_obstacles() + [rect for rect, _ in self.obstacle_props]
         self.medkit_spawns = self.create_medkit_spawns()
         self.decals = self.create_decals()
+        self.campfires = [
+            Campfire((-370, -300), 0.4),
+            Campfire((1060, 0), 1.8),
+            Campfire((370, 630), 3.1),
+        ]
+        self.trees = self.create_trees()
 
     def create_obstacles(self):
         return [
@@ -495,6 +722,55 @@ class Game:
             pygame.Rect(-40, 705, 116, 116),
         ]
 
+    def create_trees(self):
+        rng = random.Random(2026)
+        shades = ((43, 82, 48), (53, 91, 48), (42, 75, 53), (62, 96, 52))
+        trees = []
+        spacing = 78
+        rows = (66, 128, 190, 252)
+
+        def add_tree(pos):
+            trees.append(
+                Tree(
+                    pos,
+                    rng.randint(35, 49),
+                    rng.choice(shades),
+                    rng.randrange(1 << 30),
+                )
+            )
+
+        for row, depth in enumerate(rows):
+            for x in range(ARENA.left - 100, ARENA.right + 101, spacing):
+                stagger = (row % 2) * (spacing // 2)
+                add_tree(
+                    (
+                        x + stagger + rng.randint(-15, 15),
+                        ARENA.top - depth + rng.randint(-18, 18),
+                    )
+                )
+                add_tree(
+                    (
+                        x + stagger + rng.randint(-15, 15),
+                        ARENA.bottom + depth + rng.randint(-18, 18),
+                    )
+                )
+
+            for y in range(ARENA.top - 100, ARENA.bottom + 101, spacing):
+                stagger = (row % 2) * (spacing // 2)
+                add_tree(
+                    (
+                        ARENA.left - depth + rng.randint(-18, 18),
+                        y + stagger + rng.randint(-15, 15),
+                    )
+                )
+                add_tree(
+                    (
+                        ARENA.right + depth + rng.randint(-18, 18),
+                        y + stagger + rng.randint(-15, 15),
+                    )
+                )
+        return trees
+
     def create_medkit_spawns(self):
         return [
             (-1260, -390),
@@ -513,7 +789,7 @@ class Game:
         rng = random.Random(137)
         decals = []
         images = (
-            (self.assets.ruined_asphalt, (190, 118), 8),
+            (self.assets.cobblestone, (190, 118), 8),
             (self.assets.debris, (72, 48), 12),
             (self.assets.blood_splatter, (48, 34), 10),
             (self.assets.spent_casings, (42, 30), 10),
@@ -530,7 +806,7 @@ class Game:
                     )
                     if not any(circle_hits_rect(pos, max(size) / 2, rect) for rect in self.obstacles):
                         faded = scaled.copy()
-                        faded.set_alpha(100 if image is self.assets.ruined_asphalt else 190)
+                        faded.set_alpha(130 if image is self.assets.cobblestone else 190)
                         decals.append((faded, pos))
                         break
         return decals
@@ -547,6 +823,7 @@ class Game:
         self.player = Player(CHARACTERS[self.selected], image)
         self.level = 1
         self.kills = 0
+        self.total_kills = 0
         self.spawned = 0
         self.spawn_timer = 0
         self.zombies.clear()
@@ -554,7 +831,28 @@ class Game:
         self.particles.clear()
         self.reset_medkits()
         self.message_timer = 2.0
+        self.current_death = None
         self.state = "playing"
+
+    def record_death(self):
+        entry = {
+            "date": datetime.now().astimezone().isoformat(timespec="microseconds"),
+            "character": self.player.character.name,
+            "kills": self.total_kills,
+            "score": self.total_kills,
+            "level": self.level,
+        }
+        self.current_death = entry
+        if not self.ranking_available:
+            return
+
+        self.death_history.append(entry)
+        try:
+            save_ranking(self.death_history)
+        except OSError as exc:
+            self.ranking_error = f"Nao foi possivel salvar o ranking: {exc}"
+            self.ranking_available = False
+            print(self.ranking_error, file=sys.stderr)
 
     def level_target(self):
         return 7 + self.level * 4
@@ -624,9 +922,10 @@ class Game:
         self.particles = [p for p in self.particles if p.life > 0]
 
         if self.player.health <= 0:
+            self.record_death()
             self.state = "gameover"
 
-        if self.kills >= self.level_target() and not self.zombies:
+        if self.state == "playing" and self.kills >= self.level_target() and not self.zombies:
             if self.level >= 10:
                 self.state = "victory"
             else:
@@ -659,6 +958,7 @@ class Game:
             if zombie in self.zombies:
                 self.zombies.remove(zombie)
                 self.kills += 1
+                self.total_kills += 1
                 for _ in range(16):
                     self.particles.append(Particle(zombie.pos, (101, 196, 102), 260))
 
@@ -686,30 +986,60 @@ class Game:
             start_y = math.floor(self.camera.y / tile_h) * tile_h
             for x in range(start_x, int(self.camera.x + WIDTH) + tile_w, tile_w):
                 for y in range(start_y, int(self.camera.y + HEIGHT) + tile_h, tile_h):
-                    self.screen.blit(bg, (x - self.camera.x, y - self.camera.y))
+                    tile_x = x // tile_w
+                    tile_y = y // tile_h
+                    variant = (tile_x * 3 + tile_y * 5) % len(self.assets.background_tiles)
+                    self.screen.blit(
+                        self.assets.background_tiles[variant],
+                        (x - self.camera.x, y - self.camera.y),
+                    )
             shade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-            shade.fill((10, 12, 16, 58))
+            shade.fill((10, 12, 16, 30))
             self.screen.blit(shade, (0, 0))
-        tile = 80
-        start_x = int((self.camera.x + ARENA.left) // tile) * tile
-        end_x = int((self.camera.x + WIDTH + tile) // tile) * tile
-        start_y = int((self.camera.y + ARENA.top) // tile) * tile
-        end_y = int((self.camera.y + HEIGHT + tile) // tile) * tile
-        for x in range(start_x, end_x + tile, tile):
-            screen_x = x - self.camera.x
-            color = (31, 36, 43) if x % (tile * 2) else (38, 43, 51)
-            pygame.draw.line(self.screen, color, (screen_x, 0), (screen_x, HEIGHT))
-        for y in range(start_y, end_y + tile, tile):
-            screen_y = y - self.camera.y
-            color = (31, 36, 43) if y % (tile * 2) else (38, 43, 51)
-            pygame.draw.line(self.screen, color, (0, screen_y), (WIDTH, screen_y))
-        arena_screen = ARENA.move(-self.camera.x, -self.camera.y)
-        pygame.draw.rect(self.screen, (129, 126, 97), arena_screen, 6)
-        pygame.draw.rect(self.screen, (27, 31, 38), arena_screen.inflate(-18, -18), 2)
+        self.draw_forest()
+        self.draw_boundary()
+
+    def draw_forest(self):
+        forest_ground = ARENA.inflate(680, 680).move(-self.camera.x, -self.camera.y)
+        pygame.draw.rect(self.screen, (20, 33, 27), forest_ground, 340)
+        for tree in self.trees:
+            tree.draw(self.screen, self.camera)
+
+    def draw_boundary(self):
+        arena = ARENA.move(-self.camera.x, -self.camera.y)
+        wall = ARENA.inflate(52, 52).move(-self.camera.x, -self.camera.y)
+        thickness = 26
+        pygame.draw.rect(self.screen, (61, 70, 67), wall, thickness)
+        pygame.draw.rect(self.screen, (116, 122, 103), wall, 2)
+        pygame.draw.rect(self.screen, (34, 43, 40), arena, 2)
+
+        block_colors = ((74, 84, 76), (82, 90, 78), (69, 80, 73))
+        segment = 64
+        for index, world_x in enumerate(range(ARENA.left, ARENA.right, segment)):
+            x = round(world_x - self.camera.x)
+            block_width = min(segment - 2, ARENA.right - world_x)
+            for y in (wall.top, arena.bottom):
+                block = pygame.Rect(x, y, block_width, thickness)
+                if block.colliderect(self.screen.get_rect()):
+                    pygame.draw.rect(self.screen, block_colors[index % len(block_colors)], block)
+                    pygame.draw.line(self.screen, (105, 113, 95), block.topleft, (block.right - 1, block.top), 1)
+
+        for index, world_y in enumerate(range(ARENA.top, ARENA.bottom, segment)):
+            y = round(world_y - self.camera.y)
+            block_height = min(segment - 2, ARENA.bottom - world_y)
+            for x in (wall.left, arena.right):
+                block = pygame.Rect(x, y, thickness, block_height)
+                if block.colliderect(self.screen.get_rect()):
+                    pygame.draw.rect(self.screen, block_colors[(index + 1) % len(block_colors)], block)
+                    pygame.draw.line(self.screen, (105, 113, 95), block.topleft, (block.left, block.bottom - 1), 1)
 
     def draw_decals(self):
         for image, pos in self.decals:
             blit_center(self.screen, image, pos - self.camera)
+
+    def draw_campfires(self):
+        for campfire in self.campfires:
+            campfire.draw(self.screen, self.camera)
 
     def draw_obstacles(self):
         props = {tuple(rect): image for rect, image in self.obstacle_props}
@@ -771,6 +1101,7 @@ class Game:
         self.draw_grid()
         self.draw_decals()
         self.draw_obstacles()
+        self.draw_campfires()
         for kit in self.medkits:
             kit.draw(self.screen, self.camera)
         for particle in self.particles:
@@ -791,9 +1122,16 @@ class Game:
 
         preview = self.assets.backgrounds[0] if self.assets.backgrounds else None
         if preview:
-            preview = pygame.transform.smoothscale(preview, (WIDTH, int(HEIGHT * 0.58)))
-            preview.set_alpha(80)
-            self.screen.blit(preview, (0, int(HEIGHT * 0.42)))
+            preview_area = pygame.Rect(0, int(HEIGHT * 0.42), WIDTH, int(HEIGHT * 0.58))
+            old_clip = self.screen.get_clip()
+            self.screen.set_clip(preview_area)
+            for x in range(0, WIDTH, preview.get_width()):
+                for y in range(preview_area.top, HEIGHT, preview.get_height()):
+                    self.screen.blit(preview, (x, y))
+            overlay = pygame.Surface(preview_area.size, pygame.SRCALPHA)
+            overlay.fill((18, 21, 27, 175))
+            self.screen.blit(overlay, preview_area.topleft)
+            self.screen.set_clip(old_clip)
 
         card_w, card_h = 205, 260
         gap = 22
@@ -830,6 +1168,97 @@ class Game:
         draw_text(self.screen, self.title, title, color, (WIDTH / 2, 210), "midtop")
         draw_text(self.screen, self.font, subtitle, TEXT, (WIDTH / 2, 310), "midtop")
         draw_text(self.screen, self.font, "Enter reinicia | Esc volta ao menu", ACCENT, (WIDTH / 2, 370), "midtop")
+
+    def draw_gameover(self):
+        self.screen.fill((17, 19, 24))
+        draw_text(self.screen, self.title, "FIM DE JOGO", RED, (WIDTH / 2, 25), "midtop")
+
+        current = self.current_death
+        if current:
+            current_date = format_ranking_date(current["date"])
+            draw_text(
+                self.screen,
+                self.font,
+                f"Esta morte: {current['character']} | {current['kills']} zumbis | {current_date}",
+                TEXT,
+                (WIDTH / 2, 112),
+                "midtop",
+            )
+            draw_text(
+                self.screen,
+                self.font,
+                f"Pontos: {current['score']} | Nivel alcancado: {current['level']}",
+                ACCENT,
+                (WIDTH / 2, 145),
+                "midtop",
+            )
+
+        current_index = next(
+            (index for index, entry in enumerate(self.death_history) if entry is current),
+            None,
+        )
+        if current_index is not None and current_index > 0:
+            previous = self.death_history[current_index - 1]
+        elif current_index is None and self.death_history:
+            previous = self.death_history[-1]
+        else:
+            previous = None
+
+        if previous:
+            previous_text = (
+                f"Morte anterior: {previous['character']} | {previous['kills']} zumbis | "
+                f"{format_ranking_date(previous['date'])}"
+            )
+        else:
+            previous_text = "Esta foi sua primeira morte registrada."
+        draw_text(self.screen, self.small, previous_text, MUTED, (WIDTH / 2, 180), "midtop")
+
+        ranked = sorted(
+            self.death_history,
+            key=lambda entry: (entry["score"], entry["date"]),
+            reverse=True,
+        )
+        current_rank = next(
+            (rank for rank, entry in enumerate(ranked, start=1) if entry is current),
+            None,
+        )
+        visible = list(enumerate(ranked[:8], start=1))
+        if current and not any(entry is current for _, entry in visible):
+            visible = list(enumerate(ranked[:7], start=1)) + [(current_rank, current)]
+
+        draw_text(
+            self.screen,
+            self.font,
+            f"RANKING DE PONTOS (1 zumbi eliminado = 1 ponto) - {len(self.death_history)} partidas",
+            ACCENT,
+            (WIDTH / 2, 215),
+            "midtop",
+        )
+        panel = pygame.Rect(80, 250, WIDTH - 160, 330)
+        pygame.draw.rect(self.screen, PANEL, panel, border_radius=10)
+        pygame.draw.rect(self.screen, (70, 78, 91), panel, 2, border_radius=10)
+
+        columns = ((112, "Pos."), (205, "Personagem"), (490, "Pontos"), (630, "Abates"), (770, "Nivel"), (920, "Data"))
+        for x, label in columns:
+            draw_text(self.screen, self.small, label, MUTED, (x, 265))
+
+        if not visible:
+            draw_text(self.screen, self.font, "Nenhuma morte registrada ainda.", TEXT, (WIDTH / 2, 325), "midtop")
+        else:
+            for row, (rank, entry) in enumerate(visible):
+                y = 298 + row * 32
+                color = ACCENT if entry is current else TEXT
+                rank_label = f"#{rank}" if rank else "Atual"
+                draw_text(self.screen, self.small, rank_label, color, (112, y))
+                draw_text(self.screen, self.small, entry["character"], color, (205, y))
+                draw_text(self.screen, self.small, str(entry["score"]), color, (490, y))
+                draw_text(self.screen, self.small, str(entry["kills"]), color, (630, y))
+                draw_text(self.screen, self.small, str(entry["level"]), color, (770, y))
+                draw_text(self.screen, self.small, format_ranking_date(entry["date"]), color, (920, y))
+
+        if self.ranking_error:
+            draw_text(self.screen, self.small, self.ranking_error, RED, (WIDTH / 2, 600), "midtop")
+        draw_text(self.screen, self.font, "Enter: novo jogo | Esc: menu", ACCENT, (WIDTH / 2, 640), "midtop")
 
     def handle_menu_click(self, pos):
         card_w, card_h = 205, 260
@@ -870,7 +1299,7 @@ class Game:
             elif self.state == "menu":
                 self.draw_menu()
             elif self.state == "gameover":
-                self.draw_end("FIM DE JOGO", "A horda venceu. Ajuste sua rota e tente de novo.", RED)
+                self.draw_gameover()
             elif self.state == "victory":
                 self.draw_end("VITORIA", "Voce limpou os 10 niveis da infestacao.", GREEN)
 
