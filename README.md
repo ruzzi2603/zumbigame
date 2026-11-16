@@ -9,7 +9,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Se quiser recriar os sprites a partir das imagens em `Downloads`, rode:
+Para recriar os sprites recortados das imagens fornecidas em `assets/source_art`, rode:
 
 ```bash
 python generate_assets.py
@@ -26,11 +26,14 @@ python generate_assets.py
 
 ## Recursos
 
-- 5 personagens com atributos diferentes
+- 5 personagens com atributos, uniformes e equipamentos de classe diferentes
 - 10 niveis com progressao de vida, velocidade e quantidade de zumbis
 - Boss especial no nivel 10
 - Arma evolui a cada nivel, mudando dano, cadencia, velocidade e quantidade de tiros
-- Sprites criados a partir das imagens fornecidas para personagens, zumbis, boss e cenario
+- Personagens, tres tipos de zumbi, caixas e barreiras recortados das imagens fornecidas
+- Cenario de pedras com areas de asfalto destruido, destrocos, capsulas e manchas de sangue
+- Carro abandonado, sacos de areia e tambores com colisao no mapa
+- Projeteis com rastro de fogo animado e particulas de impacto
 - Zumbis com barra de vida, colisao e dano ao jogador
 - Mapa grande com fundo de pedras, paredes, barreiras e caixas reais que bloqueiam jogador, zumbis e tiros
 - Kits medicos espalhados pelo mapa para recuperar vida

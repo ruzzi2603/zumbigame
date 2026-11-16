@@ -130,13 +130,19 @@ def move_actor(pos, radius, delta, obstacles):
 class Assets:
     def __init__(self):
         self.players = self.load_many("player_", 5)
-        self.zombies = self.load_many("zombie_", 6)
+        self.zombies = self.load_many("zombie_", 3)
+        self.crates = self.load_many("crate_", 4)
+        self.barriers = self.load_many("barrier_", 2)
         self.boss = self.load("boss.png")
-        self.backgrounds = [
-            self.load("fundoreal.jpg", alpha=False),
-            self.load("ambiente.png", alpha=False),
-            self.load("local.png", alpha=False),
-        ]
+        self.backgrounds = [self.load("cobblestone.png", alpha=False)]
+        self.ruined_asphalt = self.load("ruined_asphalt.png", alpha=False)
+        self.debris = self.load("debris.png")
+        self.spent_casings = self.load("spent_casings.png")
+        self.blood_splatter = self.load("blood_splatter.png")
+        self.sandbags = self.load("sandbags.png")
+        self.abandoned_car = self.load("abandoned_car.png")
+        self.oil_drums = self.load("oil_drums.png")
+        self.vertical_barriers = [pygame.transform.rotate(image, 90) for image in self.barriers]
         self.backgrounds = [image for image in self.backgrounds if image]
         self.scale_cache = {}
 
@@ -167,16 +173,49 @@ class Bullet:
         self.pierce = pierce
         self.radius = 5
         self.life = 1.25
+        self.age = 0
         self.hit_ids = set()
 
     def update(self, dt):
         self.pos += self.velocity * dt
         self.life -= dt
+        self.age += dt
 
     def draw(self, surface, camera):
-        p = self.pos - camera
-        pygame.draw.circle(surface, (255, 236, 155), p, self.radius)
-        pygame.draw.circle(surface, (255, 156, 78), p, 2)
+        direction = safe_normalize(self.velocity)
+        side = pygame.Vector2(-direction.y, direction.x)
+        head = self.pos - camera + direction * 5
+        flicker = math.sin(self.age * 58 + self.pos.x * 0.13)
+        tail_length = 15 + (flicker + 1) * 3
+        flame_width = 2.5 + (flicker + 1) * 0.7
+        tail = head - direction * tail_length
+
+        def point(position):
+            return (round(position.x), round(position.y))
+
+        outer_flame = (
+            head + direction * 3,
+            head - direction * 4 + side * flame_width,
+            tail,
+            head - direction * 4 - side * flame_width,
+        )
+        inner_flame = (
+            head + direction * 2,
+            head - direction * 3 + side * flame_width * 0.55,
+            head - direction * (tail_length * 0.72),
+            head - direction * 3 - side * flame_width * 0.55,
+        )
+        pygame.draw.polygon(surface, (224, 55, 18), [point(p) for p in outer_flame])
+        pygame.draw.polygon(surface, (255, 132, 28), [point(p) for p in inner_flame])
+        pygame.draw.line(
+            surface,
+            (255, 224, 91),
+            point(head - direction * 2),
+            point(head + direction * 4),
+            3,
+        )
+        spark = head - direction * (7 + (flicker + 1) * 2) + side * flicker * 2
+        pygame.draw.line(surface, (255, 239, 157), point(spark), point(spark - direction * 4), 1)
 
     @property
     def dead(self):
@@ -369,19 +408,18 @@ class Player:
         else:
             body = self.character.color
         if self.image:
-            image = pygame.transform.smoothscale(self.image, (82, 62))
+            image = pygame.transform.smoothscale(self.image, (78, 78))
             if aim.length_squared() > 0:
-                angle = -math.degrees(math.atan2(aim.y, aim.x)) + 180
+                angle = -math.degrees(math.atan2(aim.y, aim.x))
                 image = pygame.transform.rotate(image, angle)
             blit_center(surface, image, p)
         else:
             pygame.draw.circle(surface, body, p, self.radius)
             pygame.draw.circle(surface, (18, 22, 27), p, self.radius, 3)
-
-        shoulder = pygame.Vector2(-aim.y, aim.x)
-        gun_start = p + aim * 22
-        gun_end = p + aim * 48
-        pygame.draw.line(surface, (49, 55, 65), gun_start + shoulder * 4, gun_end + shoulder * 4, 8)
+            shoulder = pygame.Vector2(-aim.y, aim.x)
+            gun_start = p + aim * 22
+            gun_end = p + aim * 48
+            pygame.draw.line(surface, (49, 55, 65), gun_start + shoulder * 4, gun_end + shoulder * 4, 8)
 
 
 class Game:
@@ -409,8 +447,14 @@ class Game:
         self.message_timer = 0
         self.camera = pygame.Vector2()
         self.mouse_world = pygame.Vector2()
-        self.obstacles = self.create_obstacles()
+        self.obstacle_props = [
+            (pygame.Rect(-1435, -465, 210, 95), self.assets.sandbags),
+            (pygame.Rect(960, -820, 220, 105), self.assets.abandoned_car),
+            (pygame.Rect(1350, 740, 100, 82), self.assets.oil_drums),
+        ]
+        self.obstacles = self.create_obstacles() + [rect for rect, _ in self.obstacle_props]
         self.medkit_spawns = self.create_medkit_spawns()
+        self.decals = self.create_decals()
 
     def create_obstacles(self):
         return [
@@ -464,6 +508,32 @@ class Game:
             (1280, 770),
             (1180, -470),
         ]
+
+    def create_decals(self):
+        rng = random.Random(137)
+        decals = []
+        images = (
+            (self.assets.ruined_asphalt, (190, 118), 8),
+            (self.assets.debris, (72, 48), 12),
+            (self.assets.blood_splatter, (48, 34), 10),
+            (self.assets.spent_casings, (42, 30), 10),
+        )
+        for image, size, count in images:
+            if not image:
+                continue
+            scaled = self.assets.scaled(image, size)
+            for _ in range(count):
+                for _ in range(40):
+                    pos = pygame.Vector2(
+                        rng.uniform(ARENA.left + 100, ARENA.right - 100),
+                        rng.uniform(ARENA.top + 100, ARENA.bottom - 100),
+                    )
+                    if not any(circle_hits_rect(pos, max(size) / 2, rect) for rect in self.obstacles):
+                        faded = scaled.copy()
+                        faded.set_alpha(100 if image is self.assets.ruined_asphalt else 190)
+                        decals.append((faded, pos))
+                        break
+        return decals
 
     def reset_medkits(self):
         self.medkits = []
@@ -637,26 +707,44 @@ class Game:
         pygame.draw.rect(self.screen, (129, 126, 97), arena_screen, 6)
         pygame.draw.rect(self.screen, (27, 31, 38), arena_screen.inflate(-18, -18), 2)
 
+    def draw_decals(self):
+        for image, pos in self.decals:
+            blit_center(self.screen, image, pos - self.camera)
+
     def draw_obstacles(self):
-        for rect in self.obstacles:
+        props = {tuple(rect): image for rect, image in self.obstacle_props}
+        for index, rect in enumerate(self.obstacles):
             screen_rect = rect.move(-self.camera.x, -self.camera.y)
+            prop = props.get(tuple(rect))
+            if prop:
+                image = self.assets.scaled(prop, rect.size)
+                self.screen.blit(image, screen_rect)
+                continue
+
             is_crate = rect.width <= 125 and rect.height <= 125
             if is_crate:
-                pygame.draw.rect(self.screen, (128, 86, 47), screen_rect, border_radius=3)
-                pygame.draw.rect(self.screen, (72, 46, 29), screen_rect, 3, border_radius=3)
-                pygame.draw.line(self.screen, (178, 126, 70), screen_rect.topleft, screen_rect.bottomright, 5)
-                pygame.draw.line(self.screen, (178, 126, 70), screen_rect.topright, screen_rect.bottomleft, 5)
-                pygame.draw.rect(self.screen, (80, 53, 34), screen_rect.inflate(-18, -18), 2, border_radius=2)
+                if self.assets.crates:
+                    image = self.assets.scaled(self.assets.crates[index % len(self.assets.crates)], rect.size)
+                    self.screen.blit(image, screen_rect)
+                continue
+
+            if self.assets.barriers:
+                horizontal = rect.width >= rect.height
+                source = self.assets.barriers[0] if horizontal else self.assets.vertical_barriers[0]
+                tile_length = min(220, rect.width if horizontal else rect.height)
+                tile_size = (tile_length, rect.height) if horizontal else (rect.width, tile_length)
+                tile = self.assets.scaled(source, tile_size)
+                old_clip = self.screen.get_clip()
+                self.screen.set_clip(screen_rect)
+                if horizontal:
+                    for x in range(screen_rect.left, screen_rect.right, tile.get_width()):
+                        self.screen.blit(tile, (x, screen_rect.top))
+                else:
+                    for y in range(screen_rect.top, screen_rect.bottom, tile.get_height()):
+                        self.screen.blit(tile, (screen_rect.left, y))
+                self.screen.set_clip(old_clip)
             else:
                 pygame.draw.rect(self.screen, (88, 111, 48), screen_rect, border_radius=2)
-                pygame.draw.rect(self.screen, (40, 57, 34), screen_rect, 3, border_radius=2)
-                step = 34
-                if rect.width >= rect.height:
-                    for x in range(screen_rect.left, screen_rect.right, step):
-                        pygame.draw.line(self.screen, (121, 143, 70), (x, screen_rect.top + 6), (x + 18, screen_rect.bottom - 6), 2)
-                else:
-                    for y in range(screen_rect.top, screen_rect.bottom, step):
-                        pygame.draw.line(self.screen, (121, 143, 70), (screen_rect.left + 6, y), (screen_rect.right - 6, y + 18), 2)
 
     def draw_hud(self):
         pygame.draw.rect(self.screen, (20, 23, 28), (0, 0, WIDTH, 78))
@@ -681,6 +769,7 @@ class Game:
 
     def draw_playing(self):
         self.draw_grid()
+        self.draw_decals()
         self.draw_obstacles()
         for kit in self.medkits:
             kit.draw(self.screen, self.camera)
@@ -723,7 +812,7 @@ class Game:
             pygame.draw.rect(self.screen, char.color if active else (70, 78, 91), rect, 3, border_radius=8)
             image = self.assets.players[i] if len(self.assets.players) > i else None
             if image:
-                image = pygame.transform.smoothscale(image, (108, 82))
+                image = pygame.transform.smoothscale(image, (88, 88))
                 blit_center(self.screen, image, (rect.centerx, rect.y + 72))
             else:
                 pygame.draw.circle(self.screen, char.color, (rect.centerx, rect.y + 70), 34)
